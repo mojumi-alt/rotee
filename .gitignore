@@ -1,0 +1,6 @@
+*.log
+*.trigger
+*.tmp
+*.gz
+rotee
+commit.txt
