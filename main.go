@@ -53,7 +53,7 @@ func write(wg *sync.WaitGroup, inputData chan string, outputFile string, outputF
 	outputFileLock.Lock()
 	openFlags := os.O_APPEND | os.O_CREATE | os.O_WRONLY
 	if truncateOnStart {
-		openFlags = os.O_CREATE | os.O_WRONLY
+		openFlags = os.O_CREATE | os.O_WRONLY | os.O_TRUNC
 	}
 	output_file, err := os.OpenFile(outputFile, openFlags, 0644)
 	if err != nil {
@@ -180,7 +180,7 @@ func rotateFile(outputFile string, outputFileLock *sync.Mutex, maxFiles int, max
 		today := time.Now()
 		for i := range nextFreeIndex + 1 {
 			if stat, err := times.Stat(outputFile + "." + strconv.Itoa(i+1) + ".gz"); err == nil {
-				if stat.HasBirthTime() && int(math.Floor(today.Sub(stat.BirthTime()).Hours()/24)) > maxAgeDays {
+				if stat.HasBirthTime() && int(math.Floor(today.Sub(stat.BirthTime()).Hours()/24)) >= maxAgeDays {
 					os.Remove(outputFile + "." + strconv.Itoa(i+1) + ".gz")
 				}
 			}
@@ -189,14 +189,16 @@ func rotateFile(outputFile string, outputFileLock *sync.Mutex, maxFiles int, max
 
 }
 
-func watchForTrigger(wg *sync.WaitGroup, triggerFilePath string, outputFile string, outputFileLock *sync.Mutex, maxFiles int, maxAgeDays int) {
+func watchForTrigger(wg *sync.WaitGroup, triggerFilePath string, outputFile string,
+	outputFileLock *sync.Mutex, maxFiles int, maxAgeDays int, scanFrequencySeconds float64) {
+
 	for {
 		wg.Done()
-		time.Sleep(time.Second * 5)
+		time.Sleep(time.Millisecond * time.Duration(scanFrequencySeconds*1000))
 		wg.Add(1)
 		file, err := os.Open(triggerFilePath)
 		if err != nil {
-			panic(err)
+			continue
 		}
 
 		buf := make([]byte, 1)
@@ -233,9 +235,10 @@ func main() {
 			Help: "Max age of files to keep in days. Older files are deleted. Set to negative number to disable", Default: -1})
 	truncateOnStart := parser.Flag("x", "truncate",
 		&argparse.Options{Required: false, Help: "Truncate output file on startup", Default: false})
+	scanFrequencySeconds := parser.Float("f", "scan-frequency",
+		&argparse.Options{Required: false, Help: "How much time to wait between checking the trigger file in seconds", Default: 1.0})
 
 	// TODO: Disable / Enable compression
-	// TODO: Trigger scan frequency
 
 	err := parser.Parse(os.Args)
 	if err != nil {
@@ -251,7 +254,7 @@ func main() {
 
 	if triggerFile != nil {
 		wg.Add(1)
-		go watchForTrigger(&wg, *triggerFile, *outputFile, &outputFileLock, *maxFiles, *maxAgeDays)
+		go watchForTrigger(&wg, *triggerFile, *outputFile, &outputFileLock, *maxFiles, *maxAgeDays, *scanFrequencySeconds)
 	}
 	go write(&wg, inputData, *outputFile, &outputFileLock, *truncateOnStart)
 	go read(&wg, inputData)
