@@ -26,7 +26,7 @@ type rotateConfig struct {
 	useCompression       bool
 }
 
-//go:generate sh -c "printf %s $(git rev-parse HEAD) > commit.txt"
+//go:generate sh -c "printf %s $(git rev-parse --short HEAD) > commit.txt"
 //go:embed commit.txt
 var Commit string
 
