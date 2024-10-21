@@ -313,18 +313,21 @@ func watchForTrigger(wg *sync.WaitGroup, outputFile string, config rotateConfig)
 func main() {
 
 	parser := argparse.NewParser("rotee",
-		fmt.Sprintf("tee with integrated logrotate (v %s)", Commit))
+		fmt.Sprintf("tee with integrated logrotate (rev: %s)", Commit))
 	outputFile := parser.String("o", "output-file",
 		&argparse.Options{Required: true, Help: "File to redirect output to."})
 	triggerFile := parser.String("t", "trigger-file",
-		&argparse.Options{Required: false, Help: `Write 1 to this file to trigger logrotate.
-		If logrotate succeeds we write '0' to this file, on error we write '2'.
-		`})
+		&argparse.Options{Required: false, Help: "Write 1 to this file to trigger logrotate." +
+			"If logrotate succeeds we write '0' to this file, on error we write '2'."})
 	maxFiles := parser.Int("n", "max-files",
-		&argparse.Options{Required: false, Help: "Max number of files to keep. Set to negative number to disable", Default: -1})
+		&argparse.Options{Required: false, Help: "Max number of files to keep." +
+			"Set to negative number to disable." +
+			"This rule is applied independently of the max-days rule", Default: -1})
 	maxAgeDays := parser.Int("d", "max-days",
 		&argparse.Options{Required: false,
-			Help: "Max age of files to keep in days. Older files are deleted. Set to negative number to disable", Default: -1})
+			Help: "Max age of files to keep in days." +
+				"Older files are deleted. Set to negative number to disable" +
+				"This rule is applied independently of the max-files rule", Default: -1})
 	truncateOnStart := parser.Flag("x", "truncate",
 		&argparse.Options{Required: false, Help: "Truncate output file on startup", Default: false})
 	scanFrequencySeconds := parser.Float("f", "scan-frequency",
