@@ -18,6 +18,14 @@ import (
 	"github.com/djherbis/times"
 )
 
+type rotateConfig struct {
+	maxFiles             int
+	maxAgeDays           int
+	triggerFile          string
+	scanFrequencySeconds float64
+	useCompression       bool
+}
+
 //go:generate sh -c "printf %s $(git rev-parse HEAD) > commit.txt"
 //go:embed commit.txt
 var Commit string
@@ -45,8 +53,7 @@ func read(wg *sync.WaitGroup, inputData chan string) {
 	}
 }
 
-func write(wg *sync.WaitGroup, inputData chan string, outputFile string,
-	outputFileLock *sync.Mutex, truncateOnStart bool) {
+func write(wg *sync.WaitGroup, inputData chan string, outputFile string, truncateOnStart bool) {
 
 	defer wg.Done()
 
@@ -116,6 +123,27 @@ func nextFreeFileIndex(outputFile string) int {
 	}
 }
 
+func copyFile(inputFilePath string, outputFilePath string) error {
+
+	inputFile, err := os.Open(inputFilePath)
+	if err != nil {
+		return err
+	}
+	defer inputFile.Close()
+
+	outputFile, err := os.Create(outputFilePath)
+	if err != nil {
+		return err
+	}
+	defer outputFile.Close()
+
+	if _, err := io.Copy(outputFile, inputFile); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func gzipFile(inputFilePath string, outputFilePath string) error {
 
 	inputFile, err := os.Open(inputFilePath)
@@ -130,30 +158,17 @@ func gzipFile(inputFilePath string, outputFilePath string) error {
 	}
 	defer outputFile.Close()
 
-	// Read and write gzip file in 4k blocks
-	inputBuffer := make([]byte, 4096)
+	gzipWriter := gzip.NewWriter(outputFile)
+	defer gzipWriter.Close()
 
-	w := gzip.NewWriter(outputFile)
-	defer w.Close()
-
-	for {
-		n, err := inputFile.Read(inputBuffer)
-		if err != nil && err != io.EOF {
-			return err
-		}
-		if n == 0 {
-			break
-		}
-
-		// Only write the number of bytes actually read otherwise
-		// we would only write full 4k blocks
-		w.Write(inputBuffer[:n])
+	if _, err := io.Copy(gzipWriter, inputFile); err != nil {
+		return err
 	}
 
 	return nil
 }
 
-func moveOutputFile(outputFile string, outputFileLock *sync.Mutex) error {
+func moveOutputFile(outputFile string) error {
 
 	// We are touching the output file so we need the lock
 	outputFileLock.Lock()
@@ -183,12 +198,12 @@ func moveOutputFile(outputFile string, outputFileLock *sync.Mutex) error {
 	return nil
 }
 
-func rotateFile(outputFile string, outputFileLock *sync.Mutex, maxFiles int, maxAgeDays int) error {
+func rotateFile(outputFile string, config rotateConfig) error {
 
 	// Quickly move the output file out of the way so the writer
 	// can continue.
 	// The rest of the function now has plenty of time - its not blocking anything
-	if err := moveOutputFile(outputFile, outputFileLock); err != nil {
+	if err := moveOutputFile(outputFile); err != nil {
 		return err
 	}
 
@@ -203,18 +218,24 @@ func rotateFile(outputFile string, outputFileLock *sync.Mutex, maxFiles int, max
 		}
 	}
 
-	// Compress the file we are currently rotating out
-	if err := gzipFile(outputFile+".tmp", makeArchiveName(outputFile, 1)); err != nil {
-		return err
+	// Compress / copy the file we are currently rotating out
+	if config.useCompression {
+		if err := gzipFile(outputFile+".tmp", makeArchiveName(outputFile, 1)); err != nil {
+			return err
+		}
+	} else {
+		if err := copyFile(outputFile+".tmp", makeArchiveName(outputFile, 1)); err != nil {
+			return err
+		}
 	}
 
 	// Rotate done, remove temporary file
 	os.Remove(outputFile + ".tmp")
 
 	// Apply max files rule
-	if maxFiles >= 0 {
+	if config.maxFiles >= 0 {
 		for i := range nextFreeIndex + 1 {
-			if i >= maxFiles {
+			if i >= config.maxFiles {
 
 				// Its okay if remove fails here
 				if err := os.Remove(makeArchiveName(outputFile, i+1)); err != nil {
@@ -225,14 +246,14 @@ func rotateFile(outputFile string, outputFileLock *sync.Mutex, maxFiles int, max
 	}
 
 	// Apply file age rule
-	if maxAgeDays >= 0 {
+	if config.maxAgeDays >= 0 {
 		today := time.Now()
 
 		for i := range nextFreeIndex + 1 {
 			if stat, err := times.Stat(makeArchiveName(outputFile, i+1)); err == nil {
 
 				// btime might not exist for this OS / FS, if it does not we just continue
-				if stat.HasBirthTime() && int(math.Floor(today.Sub(stat.BirthTime()).Hours()/24)) >= maxAgeDays {
+				if stat.HasBirthTime() && int(math.Floor(today.Sub(stat.BirthTime()).Hours()/24)) >= config.maxAgeDays {
 
 					// Its okay if remove fails here
 					if err := os.Remove(makeArchiveName(outputFile, i+1)); err != nil {
@@ -246,8 +267,7 @@ func rotateFile(outputFile string, outputFileLock *sync.Mutex, maxFiles int, max
 	return nil
 }
 
-func watchForTrigger(wg *sync.WaitGroup, triggerFilePath string, outputFile string,
-	outputFileLock *sync.Mutex, maxFiles int, maxAgeDays int, scanFrequencySeconds float64) {
+func watchForTrigger(wg *sync.WaitGroup, outputFile string, config rotateConfig) {
 
 	for {
 
@@ -255,7 +275,7 @@ func watchForTrigger(wg *sync.WaitGroup, triggerFilePath string, outputFile stri
 		wg.Done()
 
 		// Wait time before checking trigger file
-		time.Sleep(time.Millisecond * time.Duration(scanFrequencySeconds*1000))
+		time.Sleep(time.Millisecond * time.Duration(config.scanFrequencySeconds*1000))
 
 		// Sleep over, we are actually doing something so we tell the wait group
 		// that we can not exit
@@ -263,7 +283,7 @@ func watchForTrigger(wg *sync.WaitGroup, triggerFilePath string, outputFile stri
 
 		// Check if file containts exactly a single '1'
 		// This might explode if someone writes a lot of data to the trigger file...
-		if content, err := os.ReadFile(triggerFilePath); err == nil {
+		if content, err := os.ReadFile(config.triggerFile); err == nil {
 			if string(content) != "1" {
 				continue
 			}
@@ -273,7 +293,7 @@ func watchForTrigger(wg *sync.WaitGroup, triggerFilePath string, outputFile stri
 
 		// Perform rotation, success we write '0' to the trigger file else '2'
 		result := "0"
-		if err := rotateFile(outputFile, outputFileLock, maxFiles, maxAgeDays); err != nil {
+		if err := rotateFile(outputFile, config); err != nil {
 			result = "2"
 		}
 
@@ -281,8 +301,8 @@ func watchForTrigger(wg *sync.WaitGroup, triggerFilePath string, outputFile stri
 		// If this fails we have to hard crash, to prevent unintended data loss
 		// The trigger file would still contain 1 which would trigger another rotation
 		// and failure and so on, rotating all the user data away.
-		if err := os.WriteFile(triggerFilePath, []byte(result), 0644); err != nil {
-			log.Fatalf("Can not write to %s, shutting down in order to prevent data loss...", triggerFilePath)
+		if err := os.WriteFile(config.triggerFile, []byte(result), 0644); err != nil {
+			log.Fatalf("Can not write to %s, shutting down in order to prevent data loss...", config.triggerFile)
 		}
 	}
 
@@ -307,8 +327,10 @@ func main() {
 		&argparse.Options{Required: false, Help: "Truncate output file on startup", Default: false})
 	scanFrequencySeconds := parser.Float("f", "scan-frequency",
 		&argparse.Options{Required: false, Help: "How much time to wait between checking the trigger file in seconds", Default: 1.0})
+	useCompression := parser.Flag("c", "compress",
+		&argparse.Options{Required: false, Help: "Whether to compress the output", Default: false})
 
-	// TODO: Disable / Enable compression
+	// TODO: Add pre and post script
 
 	err := parser.Parse(os.Args)
 	if err != nil {
@@ -323,10 +345,17 @@ func main() {
 	reloadOutputFile.Store(false)
 
 	if triggerFile != nil {
+		config := rotateConfig{
+			maxFiles:             *maxFiles,
+			maxAgeDays:           *maxAgeDays,
+			triggerFile:          *triggerFile,
+			scanFrequencySeconds: *scanFrequencySeconds,
+			useCompression:       *useCompression,
+		}
 		wg.Add(1)
-		go watchForTrigger(&wg, *triggerFile, *outputFile, &outputFileLock, *maxFiles, *maxAgeDays, *scanFrequencySeconds)
+		go watchForTrigger(&wg, *outputFile, config)
 	}
-	go write(&wg, inputData, *outputFile, &outputFileLock, *truncateOnStart)
+	go write(&wg, inputData, *outputFile, *truncateOnStart)
 	go read(&wg, inputData)
 
 }

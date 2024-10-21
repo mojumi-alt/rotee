@@ -170,7 +170,7 @@ func TestRotate(t *testing.T) {
 	process := exec.Command("./rotee",
 		"-o", filepath.Join(testOutputDirectory, testLogFileName),
 		"-t", filepath.Join(testOutputDirectory, testTriggerFileName),
-		"-f", "0.001",
+		"-f", "0.001", "-c",
 	)
 	stdin, err := process.StdinPipe()
 	if err != nil {
@@ -231,6 +231,87 @@ func TestRotate(t *testing.T) {
 	}
 }
 
+func TestRotateNoCompression(t *testing.T) {
+
+	const testOutputDirectory string = "output_rotate"
+	const iterations int = 7
+	const linesPerIteration int = 1000
+	const subprocessTimeWait int = 50
+
+	defer func() {
+		if err := os.RemoveAll(testOutputDirectory); err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	if err := os.Mkdir(testOutputDirectory, 0777); err != nil {
+		t.Fatal(err)
+	}
+
+	process := exec.Command("./rotee",
+		"-o", filepath.Join(testOutputDirectory, testLogFileName),
+		"-t", filepath.Join(testOutputDirectory, testTriggerFileName),
+		"-f", "0.001",
+	)
+	stdin, err := process.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err = process.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	var sb strings.Builder
+	var expected []string
+
+	for n := 0; n < iterations; n++ {
+
+		for i := n * linesPerIteration; i < (n+1)*linesPerIteration; i++ {
+			sb.WriteString(strconv.Itoa(i) + ": Text and stuff\n")
+		}
+
+		test_input := sb.String()
+		expected = append(expected, test_input)
+		_, err := io.WriteString(stdin, test_input)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Wait for log lines to be processed
+		// Being slower than this might indicate a problem...
+		time.Sleep(time.Millisecond * time.Duration(subprocessTimeWait))
+
+		if err := os.WriteFile(filepath.Join(testOutputDirectory, testTriggerFileName), []byte{'1'}, 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		// Wait for logrotate
+		// Being slower than this might indicate a problem...
+		time.Sleep(time.Millisecond * time.Duration(subprocessTimeWait))
+
+		if result, err := os.ReadFile(filepath.Join(testOutputDirectory, testTriggerFileName)); err != nil && string(result) != "0" {
+			t.Fatal(err)
+		}
+
+		sb.Reset()
+	}
+
+	if err := stdin.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if log_content, err := os.ReadFile(filepath.Join(testOutputDirectory, testLogFileName)); err != nil || string(log_content) != "" {
+		t.Fatal("Logfile output missmatch")
+	}
+
+	for i, expected_content := range expected {
+		if log_content, err := os.ReadFile(filepath.Join(testOutputDirectory, testLogFileName+"."+strconv.Itoa(iterations-i)+".gz")); err != nil || string(log_content) != expected_content {
+			t.Fatalf("Archive Logfile %d output missmatch", iterations-i)
+		}
+	}
+}
+
 func TestRotateMaxFiles(t *testing.T) {
 
 	const testOutputDirectory string = "output_rotate_max_files"
@@ -253,7 +334,7 @@ func TestRotateMaxFiles(t *testing.T) {
 		"-o", filepath.Join(testOutputDirectory, testLogFileName),
 		"-t", filepath.Join(testOutputDirectory, testTriggerFileName),
 		"-f", "0.001",
-		"-n", strconv.Itoa(intMaxFiles),
+		"-n", strconv.Itoa(intMaxFiles), "-c",
 	)
 	stdin, err := process.StdinPipe()
 	if err != nil {
@@ -342,7 +423,7 @@ func TestRotateMaxAge(t *testing.T) {
 		"-o", filepath.Join(testOutputDirectory, testLogFileName),
 		"-t", filepath.Join(testOutputDirectory, testTriggerFileName),
 		"-f", "0.001",
-		"-d", "0",
+		"-d", "0", "-c",
 	)
 	stdin, err := process.StdinPipe()
 	if err != nil {
