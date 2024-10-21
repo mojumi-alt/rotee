@@ -282,9 +282,11 @@ func watchForTrigger(wg *sync.WaitGroup, outputFile string, config rotateConfig)
 		wg.Add(1)
 
 		// Check if file containts exactly a single '1'
+		// We are generous and allow a newline after the '1'
 		// This might explode if someone writes a lot of data to the trigger file...
 		if content, err := os.ReadFile(config.triggerFile); err == nil {
-			if string(content) != "1" {
+			string_content := string(content)
+			if string_content != "1\n" && string_content != "1" && string_content != "1\r\n" {
 				continue
 			}
 		} else {
