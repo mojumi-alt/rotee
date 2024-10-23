@@ -481,3 +481,87 @@ func TestRotateMaxAge(t *testing.T) {
 		}
 	}
 }
+
+func TestRotateNothingLost(t *testing.T) {
+	const testOutputDirectory string = "output_rotate_nothing_lost"
+	const iterations int = 7
+	const linesPerIteration int = 10000
+	const subprocessTimeWait int = 100
+
+	defer func() {
+		if err := os.RemoveAll(testOutputDirectory); err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	if err := os.Mkdir(testOutputDirectory, 0777); err != nil {
+		t.Fatal(err)
+	}
+
+	process := exec.Command("./rotee",
+		"-o", filepath.Join(testOutputDirectory, testLogFileName),
+		"-t", filepath.Join(testOutputDirectory, testTriggerFileName),
+		"-f", "0.001", "-c",
+	)
+	stdin, err := process.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err = process.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	var sb strings.Builder
+	var expected string
+
+	for n := 0; n < iterations; n++ {
+
+		for i := n * linesPerIteration; i < (n+1)*linesPerIteration; i++ {
+			sb.WriteString(strconv.Itoa(i) + ": Text and stuff\n")
+		}
+
+		test_input := sb.String()
+		expected += test_input
+		_, err := io.WriteString(stdin, test_input)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if err := os.WriteFile(filepath.Join(testOutputDirectory, testTriggerFileName), []byte{'1'}, 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		if result, err := os.ReadFile(filepath.Join(testOutputDirectory, testTriggerFileName)); err != nil && string(result) != "0" {
+			t.Fatal(err)
+		}
+
+		sb.Reset()
+	}
+
+	if err := stdin.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Wait for writes to complete
+	time.Sleep(time.Millisecond * time.Duration(subprocessTimeWait))
+
+	var all_output string
+	for i := range iterations {
+		if log_content, err := readGzipFile(filepath.Join(testOutputDirectory, testLogFileName+"."+strconv.Itoa(iterations-i)+".gz")); err != nil {
+			continue
+		} else {
+			all_output += log_content
+		}
+	}
+
+	if log_content, err := os.ReadFile(filepath.Join(testOutputDirectory, testLogFileName)); err != nil {
+		t.Fatal("Logfile could not be read")
+	} else {
+		all_output += string(log_content)
+	}
+
+	if all_output != expected {
+		t.Fatal("Output missmatch")
+	}
+}
