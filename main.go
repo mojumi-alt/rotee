@@ -179,6 +179,8 @@ func moveOutputFile(outputFile string) error {
 	// copying / zipping this file so the main writer thread
 	// can continue as fast as possible
 	if err := os.Rename(outputFile, outputFile+".tmp"); err != nil {
+
+		// TODO: If this fails because the target file exists, can we do something clever?
 		return err
 	}
 
@@ -346,7 +348,7 @@ func main() {
 	var wg sync.WaitGroup
 	wg.Add(2)
 	defer wg.Wait()
-	inputData := make(chan string, 30)
+	inputData := make(chan string, 50)
 	reloadOutputFile.Store(false)
 
 	if triggerFile != nil {
