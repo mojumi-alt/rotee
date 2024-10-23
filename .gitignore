@@ -2,5 +2,6 @@
 *.trigger
 *.tmp
 *.gz
+*.png
 rotee
 commit.txt
