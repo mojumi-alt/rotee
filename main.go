@@ -9,6 +9,8 @@ import (
 	"log"
 	"math"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -24,6 +26,8 @@ type rotateConfig struct {
 	triggerFile          string
 	scanFrequencySeconds float64
 	useCompression       bool
+	preScript            *string
+	postScript           *string
 }
 
 //go:generate sh -c "printf %s $(git rev-parse --short HEAD) > commit.txt"
@@ -168,7 +172,7 @@ func gzipFile(inputFilePath string, outputFilePath string) error {
 	return nil
 }
 
-func moveOutputFile(outputFile string) error {
+func moveOutputFile(outputFile string) (string, error) {
 
 	// We are touching the output file so we need the lock
 	outputFileLock.Lock()
@@ -178,10 +182,11 @@ func moveOutputFile(outputFile string) error {
 	// The idea is that rename is fast and we want to defer
 	// copying / zipping this file so the main writer thread
 	// can continue as fast as possible
-	if err := os.Rename(outputFile, outputFile+".tmp"); err != nil {
+	tempOutputFile := outputFile + ".tmp"
+	if err := os.Rename(outputFile, tempOutputFile); err != nil {
 
 		// TODO: If this fails because the target file exists, can we do something clever?
-		return err
+		return tempOutputFile, err
 	}
 
 	// Recreate the output file
@@ -190,14 +195,14 @@ func moveOutputFile(outputFile string) error {
 	// available until then.
 	// If this fails its also not a super big problem...
 	if empty, err := os.Create(outputFile); err != nil {
-		return nil
+		return tempOutputFile, nil
 	} else {
 		empty.Close()
 	}
 
 	// Let writer know to open the new output file
 	reloadOutputFile.Store(true)
-	return nil
+	return tempOutputFile, nil
 }
 
 func rotateFile(outputFile string, config rotateConfig) error {
@@ -205,8 +210,34 @@ func rotateFile(outputFile string, config rotateConfig) error {
 	// Quickly move the output file out of the way so the writer
 	// can continue.
 	// The rest of the function now has plenty of time - its not blocking anything
-	if err := moveOutputFile(outputFile); err != nil {
+	tempOutputFile, err := moveOutputFile(outputFile)
+	if err != nil {
 		return err
+	}
+
+	// Apply pre script if there is one
+	if config.preScript != nil {
+
+		// Obtain abs path to the file the pre script is supposed to operate on
+		// If we fail to make abs path just dont run the pre scipt, something is weird...
+		if preScriptOperatorFile, err := filepath.Abs(outputFile); err == nil {
+
+			// Run user script, pass output file as arg
+			process := exec.Command("/bin/sh", "-c", *config.preScript, preScriptOperatorFile)
+
+			// Run process ignore errors
+			process.Run()
+
+			// Sanity check that the user script did not delete the output file
+			if _, err := os.Stat(tempOutputFile); err != nil {
+
+				// We cant stat the file, assume that something evil
+				// happened and error out...
+				return err
+			}
+		} else {
+			log.Fatal(err)
+		}
 	}
 
 	// Archives are enumerated, find the next free index number
@@ -222,17 +253,33 @@ func rotateFile(outputFile string, config rotateConfig) error {
 
 	// Compress / copy the file we are currently rotating out
 	if config.useCompression {
-		if err := gzipFile(outputFile+".tmp", makeArchiveName(outputFile, 1)); err != nil {
+		if err := gzipFile(tempOutputFile, makeArchiveName(outputFile, 1)); err != nil {
 			return err
 		}
 	} else {
-		if err := copyFile(outputFile+".tmp", makeArchiveName(outputFile, 1)); err != nil {
+		if err := copyFile(tempOutputFile, makeArchiveName(outputFile, 1)); err != nil {
 			return err
 		}
 	}
 
 	// Rotate done, remove temporary file
-	os.Remove(outputFile + ".tmp")
+	os.Remove(tempOutputFile)
+
+	// Apply post script if there is one
+	// We do this before applying delete rules.
+	if config.postScript != nil {
+
+		// Obtain abs path to the file the post script is supposed to operate on
+		// If we fail to make abs path just dont run the pre scipt, something is weird...
+		if postScriptOperatorFile, err := filepath.Abs(makeArchiveName(outputFile, 1)); err == nil {
+
+			// Run user script, pass archive file name
+			process := exec.Command("/bin/sh", "-c", *config.postScript, postScriptOperatorFile)
+
+			// Run process ignore errors
+			process.Run()
+		}
+	}
 
 	// Apply max files rule
 	if config.maxFiles >= 0 {
@@ -336,6 +383,12 @@ func main() {
 		&argparse.Options{Required: false, Help: "How much time to wait between checking the trigger file in seconds", Default: 1.0})
 	useCompression := parser.Flag("c", "compress",
 		&argparse.Options{Required: false, Help: "Whether to compress the output", Default: false})
+	preScript := parser.String("s", "pre-script",
+		&argparse.Options{Required: false, Help: "Script to run before rotate, " +
+			"passes the absolute path to the file about to be rotated to the script"})
+	postScript := parser.String("p", "post-script",
+		&argparse.Options{Required: false, Help: "Script to run after rotate, " +
+			"passes the absolute path to the rotated file to the script"})
 
 	// TODO: Add pre and post script
 
@@ -358,6 +411,8 @@ func main() {
 			triggerFile:          *triggerFile,
 			scanFrequencySeconds: *scanFrequencySeconds,
 			useCompression:       *useCompression,
+			preScript:            preScript,
+			postScript:           postScript,
 		}
 		wg.Add(1)
 		go watchForTrigger(&wg, *outputFile, config)

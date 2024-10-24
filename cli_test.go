@@ -565,3 +565,87 @@ func TestRotateNothingLost(t *testing.T) {
 		t.Fatal("Output missmatch")
 	}
 }
+
+func TestPreAndPostScript(t *testing.T) {
+
+	const testOutputDirectory string = "output_pre_and_post_script"
+	const linesToWrite int = 1000
+	const subprocessTimeWait int = 50
+	const preScriptOutputFile = "pre_script_output"
+	const postScriptOutputFile = "post_script_output"
+
+	defer func() {
+		if err := os.RemoveAll(testOutputDirectory); err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	if err := os.Mkdir(testOutputDirectory, 0777); err != nil {
+		t.Fatal(err)
+	}
+
+	expectedPreScriptOutput, err := filepath.Abs(filepath.Join(testOutputDirectory, testLogFileName))
+	if err != nil {
+		t.Fatal("Could not form pre script output")
+	} else {
+		expectedPreScriptOutput += "\n"
+	}
+
+	expectedPostScriptOutput, err := filepath.Abs(filepath.Join(testOutputDirectory, testLogFileName+".1.gz"))
+	if err != nil {
+		t.Fatal("Could not form post script output")
+	} else {
+		expectedPostScriptOutput += "\n"
+	}
+
+	process := exec.Command("./rotee",
+		"-o", filepath.Join(testOutputDirectory, testLogFileName),
+		"-t", filepath.Join(testOutputDirectory, testTriggerFileName),
+		"-f", "0.001", "-c",
+		"-s", "echo $0 | tee "+filepath.Join(testOutputDirectory, preScriptOutputFile),
+		"-p", "echo $0 | tee "+filepath.Join(testOutputDirectory, postScriptOutputFile),
+	)
+	stdin, err := process.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err = process.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	var sb strings.Builder
+
+	for i := linesToWrite; i < linesToWrite; i++ {
+		sb.WriteString(strconv.Itoa(i) + ": Text and stuff\n")
+	}
+
+	test_input := sb.String()
+	if _, err := io.WriteString(stdin, test_input); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(testOutputDirectory, testTriggerFileName), []byte{'1'}, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	time.Sleep(time.Millisecond * time.Duration(subprocessTimeWait))
+
+	if result, err := os.ReadFile(filepath.Join(testOutputDirectory, testTriggerFileName)); err != nil && string(result) != "0" {
+		t.Fatal(err)
+	}
+
+	if err := stdin.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if log_content, err := os.ReadFile(filepath.Join(testOutputDirectory, preScriptOutputFile)); err != nil ||
+		string(log_content) != expectedPreScriptOutput {
+		t.Fatal("Pre script output wrong")
+	}
+
+	if log_content, err := os.ReadFile(filepath.Join(testOutputDirectory, postScriptOutputFile)); err != nil ||
+		string(log_content) != expectedPostScriptOutput {
+		t.Fatal("Post script output wrong")
+	}
+}
