@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"compress/gzip"
 	_ "embed"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -28,6 +29,12 @@ type rotateConfig struct {
 	useCompression       bool
 	preScript            *string
 	postScript           *string
+}
+
+type archiveFile struct {
+	name       string
+	index      int
+	compressed bool
 }
 
 //go:generate sh -c "printf %s $(git rev-parse --short HEAD) > commit.txt"
@@ -112,18 +119,29 @@ func write(wg *sync.WaitGroup, inputData chan string, outputFile string, truncat
 	}
 }
 
-func makeArchiveName(fileName string, index int) string {
-	return fileName + "." + strconv.Itoa(index) + ".gz"
+func makeArchivePath(fileName string, index int, compressed bool) string {
+	if compressed {
+		return fileName + "." + strconv.Itoa(index) + ".gz"
+	} else {
+		return fileName + "." + strconv.Itoa(index)
+	}
 }
 
-func nextFreeFileIndex(outputFile string) int {
-	i := 1
-	for {
-		if _, err := os.Stat(makeArchiveName(outputFile, i)); err == nil {
-			i += 1
-			continue
+func (archive *archiveFile) getPath() string {
+	return makeArchivePath(archive.name, archive.index, archive.compressed)
+}
+
+func findAllArchives(outputFile string) []archiveFile {
+	archives := make([]archiveFile, 0)
+
+	// Walk archive files until we get a file not found error
+	// This way we know the next free index we can place an archive on
+	for i := 1; ; i++ {
+		if compressed, err := isArchiveCompressed(outputFile, i); err == nil {
+			archives = append(archives, archiveFile{name: outputFile, compressed: compressed, index: i})
+		} else {
+			return archives
 		}
-		return i
 	}
 }
 
@@ -205,6 +223,50 @@ func moveOutputFile(outputFile string) (string, error) {
 	return tempOutputFile, nil
 }
 
+func isArchiveCompressed(outputFile string, index int) (bool, error) {
+
+	// Archive files can be compressed or non compressed
+	// We need to check in what category the file we are looking for is
+
+	// Check if compressed
+	if _, err := os.Stat(makeArchivePath(outputFile, index, true)); err == nil {
+		return true, nil
+	}
+
+	// Input file might be non compressed
+	if _, err := os.Stat(makeArchivePath(outputFile, index, false)); err == nil {
+		return false, nil
+	} else {
+
+		// We cant find the input file
+		return false, err
+	}
+}
+
+func prepend(x []archiveFile, y archiveFile) []archiveFile {
+	x = append(x, archiveFile{})
+	copy(x[1:], x)
+	x[0] = y
+	return x
+}
+
+func moveArchiveFileUp(archive *archiveFile) error {
+
+	// If target path we want to rotate to exists we stop
+	// before overwriting any data...
+	inputFile := archive.getPath()
+	outputFile := makeArchivePath(archive.name, archive.index+1, archive.compressed)
+	if _, err := os.Stat(outputFile); err == nil {
+		return errors.New("Rotate target file exists! " + outputFile)
+	}
+	if err := os.Rename(inputFile, outputFile); err != nil {
+		return err
+	}
+
+	archive.index += 1
+	return nil
+}
+
 func rotateFile(outputFile string, config rotateConfig) error {
 
 	// Quickly move the output file out of the way so the writer
@@ -240,27 +302,27 @@ func rotateFile(outputFile string, config rotateConfig) error {
 		}
 	}
 
-	// Archives are enumerated, find the next free index number
-	nextFreeIndex := nextFreeFileIndex(outputFile)
-
-	// Rename oldest log file to free index
-	// Bubble this "hole" up
-	for i := nextFreeIndex; i > 1; i-- {
-		if err := os.Rename(makeArchiveName(outputFile, i-1), makeArchiveName(outputFile, i)); err != nil {
+	// Move all archive files up by 1
+	// Bubble this "hole" up, so there is no .1.gz archive
+	archives := findAllArchives(outputFile)
+	for i := len(archives) - 1; i >= 0; i-- {
+		if err := moveArchiveFileUp(&archives[i]); err != nil {
 			return err
 		}
 	}
 
 	// Compress / copy the file we are currently rotating out
+	newArchive := archiveFile{outputFile, 1, config.useCompression}
 	if config.useCompression {
-		if err := gzipFile(tempOutputFile, makeArchiveName(outputFile, 1)); err != nil {
+		if err := gzipFile(tempOutputFile, newArchive.getPath()); err != nil {
 			return err
 		}
 	} else {
-		if err := copyFile(tempOutputFile, makeArchiveName(outputFile, 1)); err != nil {
+		if err := copyFile(tempOutputFile, newArchive.getPath()); err != nil {
 			return err
 		}
 	}
+	archives = prepend(archives, newArchive)
 
 	// Rotate done, remove temporary file
 	os.Remove(tempOutputFile)
@@ -271,7 +333,7 @@ func rotateFile(outputFile string, config rotateConfig) error {
 
 		// Obtain abs path to the file the post script is supposed to operate on
 		// If we fail to make abs path just dont run the pre scipt, something is weird...
-		if postScriptOperatorFile, err := filepath.Abs(makeArchiveName(outputFile, 1)); err == nil {
+		if postScriptOperatorFile, err := filepath.Abs(newArchive.getPath()); err == nil {
 
 			// Run user script, pass archive file name
 			process := exec.Command("/bin/sh", "-c", *config.postScript, postScriptOperatorFile)
@@ -283,11 +345,11 @@ func rotateFile(outputFile string, config rotateConfig) error {
 
 	// Apply max files rule
 	if config.maxFiles >= 0 {
-		for i := range nextFreeIndex + 1 {
+		for i, archive := range archives {
 			if i >= config.maxFiles {
 
 				// Its okay if remove fails here
-				if err := os.Remove(makeArchiveName(outputFile, i+1)); err != nil {
+				if err := os.Remove(archive.getPath()); err != nil {
 					continue
 				}
 			}
@@ -298,14 +360,14 @@ func rotateFile(outputFile string, config rotateConfig) error {
 	if config.maxAgeDays >= 0 {
 		today := time.Now()
 
-		for i := range nextFreeIndex + 1 {
-			if stat, err := times.Stat(makeArchiveName(outputFile, i+1)); err == nil {
+		for _, archive := range archives {
+			if stat, err := times.Stat(archive.getPath()); err == nil {
 
 				// btime might not exist for this OS / FS, if it does not we just continue
 				if stat.HasBirthTime() && int(math.Floor(today.Sub(stat.BirthTime()).Hours()/24)) >= config.maxAgeDays {
 
 					// Its okay if remove fails here
-					if err := os.Remove(makeArchiveName(outputFile, i+1)); err != nil {
+					if err := os.Remove(archive.getPath()); err != nil {
 						continue
 					}
 				}
@@ -389,8 +451,6 @@ func main() {
 	postScript := parser.String("p", "post-script",
 		&argparse.Options{Required: false, Help: "Script to run after rotate, " +
 			"passes the absolute path to the rotated file to the script"})
-
-	// TODO: Add pre and post script
 
 	err := parser.Parse(os.Args)
 	if err != nil {
