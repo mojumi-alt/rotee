@@ -463,6 +463,8 @@ func main() {
 		&argparse.Options{Required: false, Help: "Script to run after rotate, " +
 			"passes the absolute path to the rotated file to the script"})
 
+	// TODO: Add debug logging output
+
 	err := parser.Parse(os.Args)
 	if err != nil {
 		fmt.Print(parser.Usage(err))
