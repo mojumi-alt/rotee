@@ -1,6 +1,6 @@
 # What is this?
 
-This is a drop-in replacement for tee with built-in logrotate.
+This is a drop-in replacement for tee with built-in logrotate. (rotating tee = rotee)
 
 # Why would i need this?
 
