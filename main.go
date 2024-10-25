@@ -190,6 +190,17 @@ func gzipFile(inputFilePath string, outputFilePath string) error {
 	return nil
 }
 
+func nextFreeFile(outputFile string) string {
+	i := 1
+	for {
+		if _, err := os.Stat(outputFile + "." + strconv.Itoa(i)); err == nil {
+			i += 1
+			continue
+		}
+		return outputFile + "." + strconv.Itoa(i)
+	}
+}
+
 func moveOutputFile(outputFile string) (string, error) {
 
 	// We are touching the output file so we need the lock
@@ -200,10 +211,10 @@ func moveOutputFile(outputFile string) (string, error) {
 	// The idea is that rename is fast and we want to defer
 	// copying / zipping this file so the main writer thread
 	// can continue as fast as possible
-	tempOutputFile := outputFile + ".tmp"
-	if err := os.Rename(outputFile, tempOutputFile); err != nil {
 
-		// TODO: If this fails because the target file exists, can we do something clever?
+	// Find a free output filename
+	tempOutputFile := nextFreeFile(outputFile + ".tmp")
+	if err := os.Rename(outputFile, tempOutputFile); err != nil {
 		return tempOutputFile, err
 	}
 
