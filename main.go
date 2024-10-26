@@ -298,8 +298,10 @@ func rotateFile(outputFile string, config rotateConfig) error {
 			// Run user script, pass output file as arg
 			process := exec.Command("/bin/sh", "-c", *config.preScript, preScriptOperatorFile)
 
-			// Run process ignore errors
-			process.Run()
+			// Run process
+			if err := process.Run(); err != nil {
+				return err
+			}
 
 			// Sanity check that the user script did not delete the output file
 			if _, err := os.Stat(tempOutputFile); err != nil {
@@ -349,8 +351,10 @@ func rotateFile(outputFile string, config rotateConfig) error {
 			// Run user script, pass archive file name
 			process := exec.Command("/bin/sh", "-c", *config.postScript, postScriptOperatorFile)
 
-			// Run process ignore errors
-			process.Run()
+			// Run process
+			if err := process.Run(); err != nil {
+				return err
+			}
 		}
 	}
 
