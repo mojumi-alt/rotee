@@ -56,6 +56,6 @@ jobs:
           files: |
             ${{github.repository}}-linux-amd64
             ${{github.repository}}-linux-arm64
-            ${{github.repository}}-windows-amd64
+            ${{github.repository}}-windows-amd64.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
