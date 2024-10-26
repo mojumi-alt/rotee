@@ -19,6 +19,8 @@ jobs:
         with:
           go-version: '1.23.2'
           check-latest: true
+      - name: Generate
+        run: go generate -v ./...
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v3
         with:
