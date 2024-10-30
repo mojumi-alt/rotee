@@ -64,12 +64,12 @@ This can be done with a built in function, this comes with a few important cavea
 
 * The time is relative to when rotee started
 * If your workload is restarted the timer also restarts
-* If you need reliable time based rotation it is recommended to use an external time keeping service (for example cron) in combination with a [trigger file](#Using a trigger file).
+* If you need reliable time based rotation it is recommended to use an external time keeping service (for example cron) in combination with a [trigger file](#using-a-trigger-file).
 
 ## Rotate logfile after it reached a certain size (limiting logfile size)
     rotee -o output.log -m 5000 # Rotate once the logfile is 5kb
 
-The file size is specified in bytes. The [check frequency](#Increase / decrease trigger file polling frequency) is used to determine how often the file size is check. If your logfile can grow very quickly (=hundreds of MB per second) it is recommended to adjust this parameter.
+The file size is specified in bytes. The [check frequency](#increase--decrease-trigger-file-polling-frequency) is used to determine how often the file size is check. If your logfile can grow very quickly (=hundreds of MB per second) it is recommended to adjust this parameter.
 
 ## Using a trigger file
 Setting up a trigger file for an external service to control rotate can be done like so:
@@ -77,6 +77,8 @@ Setting up a trigger file for an external service to control rotate can be done 
     rotee -o output.log -t test.trigger
 
 Writing a `1` to this file will cause logrotate to happen. After rotate is done you can check the status by reading this file again. `0` indicates success, `2` indicates failure.
+
+The trigger file is checked on startup and then every time the [duration described here passes.](#increase--decrease-trigger-file-polling-frequency)
 
 ## Limit number of retained logfiles
 This can be used together with the max file age parameter.

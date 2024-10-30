@@ -398,45 +398,49 @@ func rotateFile(outputFile string, config rotateConfig) error {
 	return nil
 }
 
+func shouldTrigger(triggerFile string) bool {
+
+	// Check if file containts exactly a single '1'
+	// We are generous and allow a newline after the '1'
+	// This might explode if someone writes a lot of data to the trigger file...
+	if content, err := os.ReadFile(triggerFile); err == nil {
+		string_content := string(content)
+		return string_content == "1\n" || string_content == "1" || string_content == "1\r\n"
+	}
+
+	return false
+}
+
 func watchForTrigger(wg *sync.WaitGroup, outputFile string, triggerFile string, config rotateConfig) {
 
 	for {
 
-		// Tell the wait group that we could exit here before the sleep
+		// Start work, tell wait group that we are busy and cant exit.
+		wg.Add(1)
+
+		// Check if trigger files meets conditions to initiate rotate
+		if shouldTrigger(triggerFile) {
+
+			// Perform rotation, success we write '0' to the trigger file else '2'
+			result := "0"
+			if err := rotateFile(outputFile, config); err != nil {
+				result = "2"
+			}
+
+			// Write the result bit
+			// If this fails we have to hard crash, to prevent unintended data loss
+			// The trigger file would still contain 1 which would trigger another rotation
+			// and failure and so on, rotating all the user data away.
+			if err := os.WriteFile(triggerFile, []byte(result), 0644); err != nil {
+				log.Fatalf("Can not write to %s, shutting down in order to prevent data loss...", triggerFile)
+			}
+		}
+
+		// Tell the wait group that we could exit here while we are asleep.
 		wg.Done()
 
 		// Wait time before checking trigger file
 		time.Sleep(time.Millisecond * time.Duration(config.scanFrequencySeconds*1000))
-
-		// Sleep over, we are actually doing something so we tell the wait group
-		// that we can not exit
-		wg.Add(1)
-
-		// Check if file containts exactly a single '1'
-		// We are generous and allow a newline after the '1'
-		// This might explode if someone writes a lot of data to the trigger file...
-		if content, err := os.ReadFile(triggerFile); err == nil {
-			string_content := string(content)
-			if string_content != "1\n" && string_content != "1" && string_content != "1\r\n" {
-				continue
-			}
-		} else {
-			continue
-		}
-
-		// Perform rotation, success we write '0' to the trigger file else '2'
-		result := "0"
-		if err := rotateFile(outputFile, config); err != nil {
-			result = "2"
-		}
-
-		// Write the result bit
-		// If this fails we have to hard crash, to prevent unintended data loss
-		// The trigger file would still contain 1 which would trigger another rotation
-		// and failure and so on, rotating all the user data away.
-		if err := os.WriteFile(triggerFile, []byte(result), 0644); err != nil {
-			log.Fatalf("Can not write to %s, shutting down in order to prevent data loss...", triggerFile)
-		}
 	}
 }
 
@@ -462,14 +466,8 @@ func automaticTimedRotation(wg *sync.WaitGroup, autoRotateFrequency float64, out
 func automaticFileSizeRotation(wg *sync.WaitGroup, maxFileSizeBytes int, outputFile string, config rotateConfig) {
 
 	for {
-		// Tell the wait group that we could exit here before the sleep
-		wg.Done()
 
-		// Wait time before checking file size
-		time.Sleep(time.Millisecond * time.Duration(config.scanFrequencySeconds*1000))
-
-		// Sleep over, we are actually doing something so we tell the wait group
-		// that we can not exit
+		// Start work, tell wait group that we are busy and cant exit.
 		wg.Add(1)
 
 		if stat, err := os.Stat(outputFile); err == nil && stat.Size() >= int64(maxFileSizeBytes) {
@@ -477,6 +475,12 @@ func automaticFileSizeRotation(wg *sync.WaitGroup, maxFileSizeBytes int, outputF
 				log.Fatalf("")
 			}
 		}
+
+		// Tell the wait group that we could exit here while we are asleep.
+		wg.Done()
+
+		// Wait time before checking file size
+		time.Sleep(time.Millisecond * time.Duration(config.scanFrequencySeconds*1000))
 	}
 }
 
@@ -525,9 +529,14 @@ func main() {
 		return
 	}
 
+	// Set up a wait group to prevent shutting down before all writes
+	// and rotates are complete.
 	var wg sync.WaitGroup
 	wg.Add(2)
 	defer wg.Wait()
+
+	// Set up channel between reader and writer and initialize
+	// logfile reload flag.
 	inputData := make(chan string, 50)
 	reloadOutputFile.Store(false)
 
@@ -540,21 +549,24 @@ func main() {
 		postScript:           postScript,
 	}
 
+	// Start the desired rotate trigger processes
 	if *autoRotateFrequency > 0 {
+
+		// This function does not instantly do a rotate check
+		// Instead it starts on sleep so we need to inform the wait group.
 		wg.Add(1)
 		go automaticTimedRotation(&wg, *autoRotateFrequency, *outputFile, config)
 	}
 
 	if *maxLogFileSize > 0 {
-		wg.Add(1)
 		go automaticFileSizeRotation(&wg, *maxLogFileSize, *outputFile, config)
 	}
 
-	if triggerFile != nil {
-
-		wg.Add(1)
+	if *triggerFile != "" {
 		go watchForTrigger(&wg, *outputFile, *triggerFile, config)
 	}
+
+	// Start reading and writing last.
 	go write(&wg, inputData, *outputFile, *truncateOnStart)
 	go read(&wg, inputData)
 
