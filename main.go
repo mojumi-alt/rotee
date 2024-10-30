@@ -24,7 +24,6 @@ import (
 type rotateConfig struct {
 	maxFiles             int
 	maxAgeDays           int
-	triggerFile          string
 	scanFrequencySeconds float64
 	useCompression       bool
 	preScript            *string
@@ -42,6 +41,7 @@ type archiveFile struct {
 var Commit string
 
 var outputFileLock sync.Mutex
+var rotateLock sync.Mutex
 var reloadOutputFile atomic.Bool
 
 func read(wg *sync.WaitGroup, inputData chan string) {
@@ -280,6 +280,11 @@ func moveArchiveFileUp(archive *archiveFile) error {
 
 func rotateFile(outputFile string, config rotateConfig) error {
 
+	// There are multiple threads using this function at the same
+	// time potentially, ensure that rotate finishes before we do another.
+	rotateLock.Lock()
+	defer rotateLock.Unlock()
+
 	// Quickly move the output file out of the way so the writer
 	// can continue.
 	// The rest of the function now has plenty of time - its not blocking anything
@@ -393,7 +398,7 @@ func rotateFile(outputFile string, config rotateConfig) error {
 	return nil
 }
 
-func watchForTrigger(wg *sync.WaitGroup, outputFile string, config rotateConfig) {
+func watchForTrigger(wg *sync.WaitGroup, outputFile string, triggerFile string, config rotateConfig) {
 
 	for {
 
@@ -410,7 +415,7 @@ func watchForTrigger(wg *sync.WaitGroup, outputFile string, config rotateConfig)
 		// Check if file containts exactly a single '1'
 		// We are generous and allow a newline after the '1'
 		// This might explode if someone writes a lot of data to the trigger file...
-		if content, err := os.ReadFile(config.triggerFile); err == nil {
+		if content, err := os.ReadFile(triggerFile); err == nil {
 			string_content := string(content)
 			if string_content != "1\n" && string_content != "1" && string_content != "1\r\n" {
 				continue
@@ -429,11 +434,50 @@ func watchForTrigger(wg *sync.WaitGroup, outputFile string, config rotateConfig)
 		// If this fails we have to hard crash, to prevent unintended data loss
 		// The trigger file would still contain 1 which would trigger another rotation
 		// and failure and so on, rotating all the user data away.
-		if err := os.WriteFile(config.triggerFile, []byte(result), 0644); err != nil {
-			log.Fatalf("Can not write to %s, shutting down in order to prevent data loss...", config.triggerFile)
+		if err := os.WriteFile(triggerFile, []byte(result), 0644); err != nil {
+			log.Fatalf("Can not write to %s, shutting down in order to prevent data loss...", triggerFile)
 		}
 	}
+}
 
+func automaticTimedRotation(wg *sync.WaitGroup, autoRotateFrequency float64, outputFile string, config rotateConfig) {
+
+	for {
+		// Tell the wait group that we could exit here before the sleep
+		wg.Done()
+
+		// Wait time before doing rotate
+		time.Sleep(time.Millisecond * time.Duration(autoRotateFrequency*1000))
+
+		// Sleep over, we are actually doing something so we tell the wait group
+		// that we can not exit
+		wg.Add(1)
+
+		if err := rotateFile(outputFile, config); err != nil {
+			log.Fatalf("")
+		}
+	}
+}
+
+func automaticFileSizeRotation(wg *sync.WaitGroup, maxFileSizeBytes int, outputFile string, config rotateConfig) {
+
+	for {
+		// Tell the wait group that we could exit here before the sleep
+		wg.Done()
+
+		// Wait time before checking file size
+		time.Sleep(time.Millisecond * time.Duration(config.scanFrequencySeconds*1000))
+
+		// Sleep over, we are actually doing something so we tell the wait group
+		// that we can not exit
+		wg.Add(1)
+
+		if stat, err := os.Stat(outputFile); err == nil && stat.Size() >= int64(maxFileSizeBytes) {
+			if err := rotateFile(outputFile, config); err != nil {
+				log.Fatalf("")
+			}
+		}
+	}
 }
 
 func main() {
@@ -466,6 +510,12 @@ func main() {
 	postScript := parser.String("p", "post-script",
 		&argparse.Options{Required: false, Help: "Script to run after rotate, " +
 			"passes the absolute path to the rotated file to the script"})
+	autoRotateFrequency := parser.Float("a", "auto-rotate-frequency",
+		&argparse.Options{Required: false, Help: "How long to wait between rotating the file." +
+			"Set to a positive number of seconds to activate", Default: -1.0})
+	maxLogFileSize := parser.Int("m", "max-logfile-size",
+		&argparse.Options{Required: false, Help: "Max logfile size before triggering logrotate." +
+			"Set to a positive number of bytes to activate", Default: -1})
 
 	// TODO: Add debug logging output
 
@@ -481,18 +531,29 @@ func main() {
 	inputData := make(chan string, 50)
 	reloadOutputFile.Store(false)
 
-	if triggerFile != nil {
-		config := rotateConfig{
-			maxFiles:             *maxFiles,
-			maxAgeDays:           *maxAgeDays,
-			triggerFile:          *triggerFile,
-			scanFrequencySeconds: *scanFrequencySeconds,
-			useCompression:       *useCompression,
-			preScript:            preScript,
-			postScript:           postScript,
-		}
+	config := rotateConfig{
+		maxFiles:             *maxFiles,
+		maxAgeDays:           *maxAgeDays,
+		scanFrequencySeconds: *scanFrequencySeconds,
+		useCompression:       *useCompression,
+		preScript:            preScript,
+		postScript:           postScript,
+	}
+
+	if *autoRotateFrequency > 0 {
 		wg.Add(1)
-		go watchForTrigger(&wg, *outputFile, config)
+		go automaticTimedRotation(&wg, *autoRotateFrequency, *outputFile, config)
+	}
+
+	if *maxLogFileSize > 0 {
+		wg.Add(1)
+		go automaticFileSizeRotation(&wg, *maxLogFileSize, *outputFile, config)
+	}
+
+	if triggerFile != nil {
+
+		wg.Add(1)
+		go watchForTrigger(&wg, *outputFile, *triggerFile, config)
 	}
 	go write(&wg, inputData, *outputFile, *truncateOnStart)
 	go read(&wg, inputData)

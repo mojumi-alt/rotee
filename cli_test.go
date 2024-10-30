@@ -879,3 +879,125 @@ func TestRotateTempFileBroken(t *testing.T) {
 		t.Fatal("Tempfile was destroyed")
 	}
 }
+
+func TestTimedRotate(t *testing.T) {
+
+	const testOutputDirectory string = "output_timed_rotate"
+	const lines int = 1000
+	const subprocessTimeWait int = 50
+	const rotateTimeWait float64 = 0.5
+
+	defer func() {
+		if err := os.RemoveAll(testOutputDirectory); err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	if err := os.Mkdir(testOutputDirectory, 0777); err != nil {
+		t.Fatal(err)
+	}
+
+	process := exec.Command("./rotee",
+		"-o", filepath.Join(testOutputDirectory, testLogFileName),
+		"-a", strconv.FormatFloat(rotateTimeWait, 'f', 2, 32), "-c",
+	)
+	stdin, err := process.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err = process.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	var sb strings.Builder
+
+	for i := 0; i < lines; i++ {
+		sb.WriteString(strconv.Itoa(i) + ": Text and stuff\n")
+	}
+
+	test_input := sb.String()
+	_, err = io.WriteString(stdin, test_input)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Wait for log lines to be processed
+	// Being slower than this might indicate a problem...
+	time.Sleep(time.Millisecond * time.Duration(subprocessTimeWait))
+	time.Sleep(time.Millisecond * time.Duration(rotateTimeWait*1000))
+
+	// Wait for logrotate
+	// Being slower than this might indicate a problem...
+	time.Sleep(time.Millisecond * time.Duration(subprocessTimeWait))
+
+	if err := stdin.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if log_content, err := os.ReadFile(filepath.Join(testOutputDirectory, testLogFileName)); err != nil || string(log_content) != "" {
+		t.Fatal("Logfile output missmatch")
+	}
+
+	if log_content, err := readGzipFile(filepath.Join(testOutputDirectory, testLogFileName+"."+strconv.Itoa(1)+".gz")); err != nil || string(log_content) != test_input {
+		t.Fatalf("Archive Logfile %d output missmatch", 1)
+	}
+}
+
+func TestMaxFileSizeRotate(t *testing.T) {
+
+	const testOutputDirectory string = "output_max_file_size_rotate"
+	const lines int = 1000
+	const subprocessTimeWait int = 50
+
+	defer func() {
+		if err := os.RemoveAll(testOutputDirectory); err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	if err := os.Mkdir(testOutputDirectory, 0777); err != nil {
+		t.Fatal(err)
+	}
+
+	process := exec.Command("./rotee",
+		"-o", filepath.Join(testOutputDirectory, testLogFileName),
+		"-m", "2000", "-c", "-f", "0.001",
+	)
+	stdin, err := process.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err = process.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	var sb strings.Builder
+
+	for i := 0; i < lines; i++ {
+		sb.WriteString("a\n")
+	}
+
+	test_input := sb.String()
+	_, err = io.WriteString(stdin, test_input)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Wait for log lines to be processed
+	// Being slower than this might indicate a problem...
+	time.Sleep(time.Millisecond * time.Duration(subprocessTimeWait))
+
+	if err := stdin.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if log_content, err := os.ReadFile(filepath.Join(testOutputDirectory, testLogFileName)); err != nil || string(log_content) != "" {
+		t.Fatal("Logfile output missmatch")
+	}
+
+	if log_content, err := readGzipFile(filepath.Join(testOutputDirectory, testLogFileName+"."+strconv.Itoa(1)+".gz")); err != nil || string(log_content) != test_input {
+		t.Fatalf("Archive Logfile %d output missmatch", 1)
+	}
+}
