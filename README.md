@@ -69,7 +69,7 @@ This can be done with a built in function, this comes with a few important cavea
 ## Rotate logfile after it reached a certain size (limiting logfile size)
     rotee -o output.log -m 5000 # Rotate once the logfile is 5kb
 
-The file size is specified in bytes. The [check frequency](#increase--decrease-trigger-file-polling-frequency) is used to determine how often the file size is check. If your logfile can grow very quickly (=hundreds of MB per second) it is recommended to adjust this parameter.
+The file size is specified in bytes. The [check frequency](#increase--decrease-trigger-file-polling-frequency) is used to determine how often the file size is checked. If your logfile can grow very quickly (=hundreds of MB per second) it is recommended to adjust this parameter.
 
 ## Using a trigger file
 Setting up a trigger file for an external service to control rotate can be done like so:
@@ -115,6 +115,12 @@ If you need to customize the behavior we offer pre-rotate and post-rotate script
 
 The pre-script (-s) is executed on the file before its rotated, the post-script (-p) is executed on the file after rotate is done.
 This works with the built-in rotation triggers and with explicit rotation trigger file.
+
+## Turn on additional logging
+You can tell rotee to log activities into a separate file using -v parameter.
+This will usually not slow down the program at all, so it is save to use in production.
+
+    rotee -o output.log -v activity.log
 
 ## Getting started
 The best way to get started is to take a look at some examples:

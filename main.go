@@ -43,9 +43,11 @@ var Commit string
 var outputFileLock sync.Mutex
 var rotateLock sync.Mutex
 var reloadOutputFile atomic.Bool
+var verbose bool
 
 func read(wg *sync.WaitGroup, inputData chan string) {
 
+	logActivity("Reader thread started")
 	defer wg.Done()
 	defer close(inputData)
 
@@ -62,10 +64,13 @@ func read(wg *sync.WaitGroup, inputData chan string) {
 			inputData <- text
 		}
 	}
+
+	logActivity("Reader thread stopped")
 }
 
 func write(wg *sync.WaitGroup, inputData chan string, outputFile string, truncateOnStart bool) {
 
+	logActivity("Writer thread started")
 	defer wg.Done()
 
 	// Open output file so we need to take the lock
@@ -78,6 +83,7 @@ func write(wg *sync.WaitGroup, inputData chan string, outputFile string, truncat
 
 	// Fail early: let user know that we cant write to output file
 	if err != nil {
+		logActivity("Can not write to file %s", outputFile)
 		log.Fatalf("Can not write to file %s", outputFile)
 	}
 	defer output_file.Close()
@@ -88,6 +94,7 @@ func write(wg *sync.WaitGroup, inputData chan string, outputFile string, truncat
 		text, ok := <-inputData
 
 		if !ok {
+			logActivity("Writer thread stopped")
 			return
 		}
 
@@ -215,6 +222,7 @@ func moveOutputFile(outputFile string) (string, error) {
 	// Find a free output filename
 	tempOutputFile := nextFreeFile(outputFile + ".tmp")
 	if err := os.Rename(outputFile, tempOutputFile); err != nil {
+		logActivity("Moved log file to temporary %s", tempOutputFile)
 		return tempOutputFile, err
 	}
 
@@ -223,9 +231,7 @@ func moveOutputFile(outputFile string) (string, error) {
 	// If we defer this to the next write there might be no file
 	// available until then.
 	// If this fails its also not a super big problem...
-	if empty, err := os.Create(outputFile); err != nil {
-		return tempOutputFile, nil
-	} else {
+	if empty, err := os.Create(outputFile); err == nil {
 		empty.Close()
 	}
 
@@ -282,6 +288,7 @@ func rotateFile(outputFile string, config rotateConfig) error {
 
 	// There are multiple threads using this function at the same
 	// time potentially, ensure that rotate finishes before we do another.
+	logActivity("Starting logrotate...")
 	rotateLock.Lock()
 	defer rotateLock.Unlock()
 
@@ -294,7 +301,7 @@ func rotateFile(outputFile string, config rotateConfig) error {
 	}
 
 	// Apply pre script if there is one
-	if config.preScript != nil {
+	if config.preScript != nil && *config.preScript != "" {
 
 		// Obtain abs path to the file the pre script is supposed to operate on
 		// If we fail to make abs path just dont run the pre scipt, something is weird...
@@ -304,7 +311,9 @@ func rotateFile(outputFile string, config rotateConfig) error {
 			process := exec.Command("/bin/sh", "-c", *config.preScript, preScriptOperatorFile)
 
 			// Run process
+			logActivity("Running user defined pre script...")
 			if err := process.Run(); err != nil {
+				logActivity("Error while running user defined pre script!")
 				return err
 			}
 
@@ -313,18 +322,23 @@ func rotateFile(outputFile string, config rotateConfig) error {
 
 				// We cant stat the file, assume that something evil
 				// happened and error out...
+				logActivity("Can not find logfile after user script. Aborting...")
 				return err
 			}
 		} else {
-			log.Fatal(err)
+			logActivity("Can not find path to logfile. Error: %s", err)
+			return err
 		}
 	}
 
 	// Move all archive files up by 1
 	// Bubble this "hole" up, so there is no .1.gz archive
+	logActivity("Moving archives up...")
 	archives := findAllArchives(outputFile)
+	logActivity("Have %d archives", len(archives))
 	for i := len(archives) - 1; i >= 0; i-- {
 		if err := moveArchiveFileUp(&archives[i]); err != nil {
+			logActivity("Error while moving archive files: %s", err)
 			return err
 		}
 	}
@@ -333,24 +347,28 @@ func rotateFile(outputFile string, config rotateConfig) error {
 	newArchive := archiveFile{outputFile, 1, config.useCompression}
 	if config.useCompression {
 		if err := gzipFile(tempOutputFile, newArchive.getPath()); err != nil {
+			logActivity("Error while gziping logfile: %s", err)
 			return err
 		}
 	} else {
 		if err := copyFile(tempOutputFile, newArchive.getPath()); err != nil {
+			logActivity("Error while copying logfile: %s", err)
 			return err
 		}
 	}
 	archives = prepend(archives, newArchive)
 
 	// Rotate done, remove temporary file
+	logActivity("Removing temporary logfile...")
 	os.Remove(tempOutputFile)
 
 	// Apply post script if there is one
 	// We do this before applying delete rules.
-	if config.postScript != nil {
+	if config.postScript != nil && *config.postScript != "" {
 
 		// Obtain abs path to the file the post script is supposed to operate on
 		// If we fail to make abs path just dont run the pre scipt, something is weird...
+		logActivity("Running user defined post script...")
 		if postScriptOperatorFile, err := filepath.Abs(newArchive.getPath()); err == nil {
 
 			// Run user script, pass archive file name
@@ -358,18 +376,24 @@ func rotateFile(outputFile string, config rotateConfig) error {
 
 			// Run process
 			if err := process.Run(); err != nil {
+				logActivity("Error while running user defined post script!")
 				return err
 			}
+		} else {
+			logActivity("Can not find path to logfile. Error: %s", err)
+			return err
 		}
 	}
 
 	// Apply max files rule
 	if config.maxFiles >= 0 {
+		logActivity("Limit max number of archives to %d", config.maxFiles)
 		for i, archive := range archives {
 			if i >= config.maxFiles {
 
 				// Its okay if remove fails here
 				if err := os.Remove(archive.getPath()); err != nil {
+					logActivity("Failed to delete %s", archive.getPath())
 					continue
 				}
 			}
@@ -378,6 +402,8 @@ func rotateFile(outputFile string, config rotateConfig) error {
 
 	// Apply file age rule
 	if config.maxAgeDays >= 0 {
+		logActivity("Limit max number of archives to %d days", config.maxAgeDays)
+
 		today := time.Now()
 
 		for _, archive := range archives {
@@ -388,9 +414,14 @@ func rotateFile(outputFile string, config rotateConfig) error {
 
 					// Its okay if remove fails here
 					if err := os.Remove(archive.getPath()); err != nil {
+						logActivity("Failed to delete %s", archive.getPath())
 						continue
 					}
+				} else {
+					logActivity("Cant determine btime of file %s", archive.getPath())
 				}
+			} else {
+				logActivity("Failed to stat %s", archive.getPath())
 			}
 		}
 	}
@@ -413,6 +444,7 @@ func shouldTrigger(triggerFile string) bool {
 
 func watchForTrigger(wg *sync.WaitGroup, outputFile string, triggerFile string, config rotateConfig) {
 
+	logActivity("Tracking trigger file %s", triggerFile)
 	for {
 
 		// Start work, tell wait group that we are busy and cant exit.
@@ -422,16 +454,19 @@ func watchForTrigger(wg *sync.WaitGroup, outputFile string, triggerFile string, 
 		if shouldTrigger(triggerFile) {
 
 			// Perform rotation, success we write '0' to the trigger file else '2'
+			logActivity("Starting rotate because of trigger file %s", triggerFile)
 			result := "0"
 			if err := rotateFile(outputFile, config); err != nil {
 				result = "2"
 			}
+			logActivity("Writing status %s to %s", result, triggerFile)
 
 			// Write the result bit
 			// If this fails we have to hard crash, to prevent unintended data loss
 			// The trigger file would still contain 1 which would trigger another rotation
 			// and failure and so on, rotating all the user data away.
 			if err := os.WriteFile(triggerFile, []byte(result), 0644); err != nil {
+				logActivity("Can not write to %s, shutting down in order to prevent data loss...", triggerFile)
 				log.Fatalf("Can not write to %s, shutting down in order to prevent data loss...", triggerFile)
 			}
 		}
@@ -446,6 +481,7 @@ func watchForTrigger(wg *sync.WaitGroup, outputFile string, triggerFile string, 
 
 func automaticTimedRotation(wg *sync.WaitGroup, autoRotateFrequency float64, outputFile string, config rotateConfig) {
 
+	logActivity("Running logrotate every %f seconds", autoRotateFrequency)
 	for {
 		// Tell the wait group that we could exit here before the sleep
 		wg.Done()
@@ -458,13 +494,16 @@ func automaticTimedRotation(wg *sync.WaitGroup, autoRotateFrequency float64, out
 		wg.Add(1)
 
 		if err := rotateFile(outputFile, config); err != nil {
-			log.Fatalf("")
+			logActivity("Timed rotate failed!")
+			log.Fatal("Timed rotate failed!")
 		}
 	}
 }
 
 func automaticFileSizeRotation(wg *sync.WaitGroup, maxFileSizeBytes int, outputFile string, config rotateConfig) {
 
+	logActivity("Running logrotate once file has size %d, checking every %f seconds",
+		maxFileSizeBytes, config.scanFrequencySeconds)
 	for {
 
 		// Start work, tell wait group that we are busy and cant exit.
@@ -472,8 +511,11 @@ func automaticFileSizeRotation(wg *sync.WaitGroup, maxFileSizeBytes int, outputF
 
 		if stat, err := os.Stat(outputFile); err == nil && stat.Size() >= int64(maxFileSizeBytes) {
 			if err := rotateFile(outputFile, config); err != nil {
-				log.Fatalf("")
+				logActivity("Filed size based rotation failed!")
+				log.Fatal("Filed size based rotation failed!")
 			}
+		} else {
+			logActivity("Filed size based rotation could not stat file %s", outputFile)
 		}
 
 		// Tell the wait group that we could exit here while we are asleep.
@@ -481,6 +523,12 @@ func automaticFileSizeRotation(wg *sync.WaitGroup, maxFileSizeBytes int, outputF
 
 		// Wait time before checking file size
 		time.Sleep(time.Millisecond * time.Duration(config.scanFrequencySeconds*1000))
+	}
+}
+
+func logActivity(message string, v ...any) {
+	if verbose {
+		log.Printf(message, v...)
 	}
 }
 
@@ -520,13 +568,23 @@ func main() {
 	maxLogFileSize := parser.Int("m", "max-logfile-size",
 		&argparse.Options{Required: false, Help: "Max logfile size before triggering logrotate." +
 			"Set to a positive number of bytes to activate", Default: -1})
-
-	// TODO: Add debug logging output
+	activityFilePath := parser.String("v", "verbose-output-file",
+		&argparse.Options{Required: false, Help: "Specify an output file for activity logging"})
 
 	err := parser.Parse(os.Args)
 	if err != nil {
 		fmt.Print(parser.Usage(err))
 		return
+	}
+
+	if *activityFilePath != "" {
+		if f, err := os.OpenFile(*activityFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err != nil {
+			log.Fatalf("Cant open activity log file at %s", *activityFilePath)
+		} else {
+			defer f.Close()
+			log.SetOutput(f)
+			verbose = true
+		}
 	}
 
 	// Set up a wait group to prevent shutting down before all writes

@@ -13,6 +13,7 @@ import (
 )
 
 const testLogFileName string = "test.log"
+const testDebugFileName string = "debug.log"
 const testTriggerFileName string = "test.trigger"
 
 func readGzipFile(filePath string) (string, error) {
@@ -49,7 +50,8 @@ func TestTeeOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	process := exec.Command("./rotee", "-o", filepath.Join(testOutputDirectory, testLogFileName))
+	process := exec.Command("./rotee", "-v", filepath.Join(testOutputDirectory, testDebugFileName),
+		"-o", filepath.Join(testOutputDirectory, testLogFileName))
 	stdin, err := process.StdinPipe()
 	if err != nil {
 		t.Fatal(err)
@@ -132,7 +134,8 @@ func TestTruncateOnStart(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	process := exec.Command("./rotee", "-o", filepath.Join(testOutputDirectory, testLogFileName), "-x")
+	process := exec.Command("./rotee", "-v", filepath.Join(testOutputDirectory, testDebugFileName),
+		"-o", filepath.Join(testOutputDirectory, testLogFileName), "-x")
 	stdin, err := process.StdinPipe()
 	if err != nil {
 		t.Fatal(err)
@@ -167,7 +170,7 @@ func TestRotate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	process := exec.Command("./rotee",
+	process := exec.Command("./rotee", "-v", filepath.Join(testOutputDirectory, testDebugFileName),
 		"-o", filepath.Join(testOutputDirectory, testLogFileName),
 		"-t", filepath.Join(testOutputDirectory, testTriggerFileName),
 		"-f", "0.001", "-c",
@@ -248,7 +251,7 @@ func TestRotateNoCompression(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	process := exec.Command("./rotee",
+	process := exec.Command("./rotee", "-v", filepath.Join(testOutputDirectory, testDebugFileName),
 		"-o", filepath.Join(testOutputDirectory, testLogFileName),
 		"-t", filepath.Join(testOutputDirectory, testTriggerFileName),
 		"-f", "0.001",
@@ -330,7 +333,7 @@ func TestRotateMaxFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	process := exec.Command("./rotee",
+	process := exec.Command("./rotee", "-v", filepath.Join(testOutputDirectory, testDebugFileName),
 		"-o", filepath.Join(testOutputDirectory, testLogFileName),
 		"-t", filepath.Join(testOutputDirectory, testTriggerFileName),
 		"-f", "0.001",
@@ -419,7 +422,7 @@ func TestRotateMaxAge(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	process := exec.Command("./rotee",
+	process := exec.Command("./rotee", "-v", filepath.Join(testOutputDirectory, testDebugFileName),
 		"-o", filepath.Join(testOutputDirectory, testLogFileName),
 		"-t", filepath.Join(testOutputDirectory, testTriggerFileName),
 		"-f", "0.001",
@@ -498,7 +501,7 @@ func TestRotateNothingLost(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	process := exec.Command("./rotee",
+	process := exec.Command("./rotee", "-v", filepath.Join(testOutputDirectory, testDebugFileName),
 		"-o", filepath.Join(testOutputDirectory, testLogFileName),
 		"-t", filepath.Join(testOutputDirectory, testTriggerFileName),
 		"-f", "0.001", "-c",
@@ -598,7 +601,7 @@ func TestPreAndPostScript(t *testing.T) {
 		expectedPostScriptOutput += "\n"
 	}
 
-	process := exec.Command("./rotee",
+	process := exec.Command("./rotee", "-v", filepath.Join(testOutputDirectory, testDebugFileName),
 		"-o", filepath.Join(testOutputDirectory, testLogFileName),
 		"-t", filepath.Join(testOutputDirectory, testTriggerFileName),
 		"-f", "0.001", "-c",
@@ -667,7 +670,7 @@ func TestRotateMixedCompression(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	process := exec.Command("./rotee",
+	process := exec.Command("./rotee", "-v", filepath.Join(testOutputDirectory, testDebugFileName),
 		"-o", filepath.Join(testOutputDirectory, testLogFileName),
 		"-t", filepath.Join(testOutputDirectory, testTriggerFileName),
 		"-f", "0.001",
@@ -721,7 +724,7 @@ func TestRotateMixedCompression(t *testing.T) {
 	}
 
 	// Okay now we run with compression, the non compressed files have to still be non compressed!
-	process = exec.Command("./rotee",
+	process = exec.Command("./rotee", "-v", filepath.Join(testOutputDirectory, testDebugFileName),
 		"-o", filepath.Join(testOutputDirectory, testLogFileName),
 		"-t", filepath.Join(testOutputDirectory, testTriggerFileName),
 		"-f", "0.001", "-c",
@@ -812,7 +815,7 @@ func TestRotateTempFileBroken(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	process := exec.Command("./rotee",
+	process := exec.Command("./rotee", "-v", filepath.Join(testOutputDirectory, testDebugFileName),
 		"-o", filepath.Join(testOutputDirectory, testLogFileName),
 		"-t", filepath.Join(testOutputDirectory, testTriggerFileName),
 		"-f", "0.001", "-c",
@@ -897,7 +900,7 @@ func TestTimedRotate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	process := exec.Command("./rotee",
+	process := exec.Command("./rotee", "-v", filepath.Join(testOutputDirectory, testDebugFileName),
 		"-o", filepath.Join(testOutputDirectory, testLogFileName),
 		"-a", strconv.FormatFloat(rotateTimeWait, 'f', 2, 32), "-c",
 	)
@@ -960,7 +963,7 @@ func TestMaxFileSizeRotate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	process := exec.Command("./rotee",
+	process := exec.Command("./rotee", "-v", filepath.Join(testOutputDirectory, testDebugFileName),
 		"-o", filepath.Join(testOutputDirectory, testLogFileName),
 		"-m", "2000", "-c", "-f", "0.001",
 	)
