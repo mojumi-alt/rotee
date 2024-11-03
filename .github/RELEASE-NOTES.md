@@ -1,4 +1,5 @@
 # Release notes
 
-This is a pre release build for public testing.
-For a list of supported features see [here](../README.md)
+This is the first public release ready for production use!
+
+For a list of supported features see [here](https://github.com/mojumi-alt/rotee/blob/master/README.md)

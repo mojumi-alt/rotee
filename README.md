@@ -13,6 +13,17 @@ This can happen if a process writes logfiles to a network share and you rotate t
 from a different process on another machine.
 This tool can help you avoid this problem because every log writer takes care of their own logrotate and rotee actually reopens the file after rotate instead of appening to a potentially stale logfile.
 
+# Installation
+We provide pre-built binaries for some platforms, head over to the [release page](https://github.com/mojumi-alt/rotee/releases) to grab the latest version.
+
+You can also build and install yourself (you will need a [go toolchain](https://go.dev/doc/install)):
+
+    git clone https://github.com/mojumi-alt/rotee.git
+    cd rotee
+    go generate
+    go build
+    go install
+
 # Okay, how does it work?
 
 By default rotee reads from stdin, so you can try the examples from this section without having to pipe any output into it (just run the rotee commands without the part before `|` ).
@@ -128,3 +139,9 @@ The best way to get started is to take a look at some examples:
 * [Running logrotate on a timer](examples/after_time.sh) 
 * [Running logrotate on a certain logfile size](examples/filesize.sh)
 * [Using custom compression](examples/custom_compression.sh)
+
+# Questions or problems?
+If you are missing any features or have any problems or questions, head over to the [issue tracker](https://github.com/mojumi-alt/rotee/issues) and just open an issue.
+
+# Contributing
+Pull requests are welcome!
