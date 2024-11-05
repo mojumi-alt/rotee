@@ -569,6 +569,15 @@ func parse_memory_size_string(input string) (int64, error) {
 	return int64(converted * factor), nil
 }
 
+func touchFile(path string) error {
+	if output_file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err != nil {
+		return err
+	} else {
+		output_file.Close()
+		return nil
+	}
+}
+
 func main() {
 
 	parser := argparse.NewParser("rotee",
@@ -622,6 +631,11 @@ func main() {
 			log.SetOutput(f)
 			verbose = true
 		}
+	}
+
+	// Before we do anything make sure we can touch the output file
+	if err := touchFile(*outputFile); err != nil {
+		log.Fatalf("Can not write file %s", *outputFile)
 	}
 
 	// Set up a wait group to prevent shutting down before all writes
