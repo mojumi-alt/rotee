@@ -965,7 +965,7 @@ func TestMaxFileSizeRotate(t *testing.T) {
 
 	process := exec.Command("./rotee", "-v", filepath.Join(testOutputDirectory, testDebugFileName),
 		"-o", filepath.Join(testOutputDirectory, testLogFileName),
-		"-m", "2000", "-c", "-f", "0.001",
+		"-m", "2kb", "-c", "-f", "0.001",
 	)
 	stdin, err := process.StdinPipe()
 	if err != nil {

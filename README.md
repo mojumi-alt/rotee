@@ -38,7 +38,7 @@ Replace tee with rotee:
 
 Next is to enable logrotate:
 
-    ./my_server.sh | rotee -o server.log -m 5000 # Automatically rotate logfile every 5kb
+    ./my_server.sh | rotee -o server.log -m 5kb # Automatically rotate logfile every 5kb
 
 There is also built-in support for rotating the logfile after a certain time:
 
@@ -78,7 +78,12 @@ This can be done with a built in function, this comes with a few important cavea
 * If you need reliable time based rotation it is recommended to use an external time keeping service (for example cron) in combination with a [trigger file](#using-a-trigger-file).
 
 ## Rotate logfile after it reached a certain size (limiting logfile size)
+All of the below are equivalent:
+
     rotee -o output.log -m 5000 # Rotate once the logfile is 5kb
+    rotee -o output.log -m 5kb  
+    rotee -o output.log -m 0.005mb
+    rotee -o output.log -m 0.000005gb
 
 The file size is specified in bytes. The [check frequency](#increase--decrease-trigger-file-polling-frequency) is used to determine how often the file size is checked. If your logfile can grow very quickly (=hundreds of MB per second) it is recommended to adjust this parameter.
 

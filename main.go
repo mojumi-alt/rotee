@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -532,6 +533,36 @@ func logActivity(message string, v ...any) {
 	}
 }
 
+func parse_memory_size_string(input string) (int64, error) {
+
+	factor := 1.0
+
+	if len(input) >= 3 {
+		switch strings.ToLower(input[len(input)-2:]) {
+		case "kb":
+			factor = 1000
+			input = input[:len(input)-2]
+		case "mb":
+			factor = 1000000
+			input = input[:len(input)-2]
+		case "gb":
+			factor = 1000000000
+			input = input[:len(input)-2]
+		}
+	}
+
+	converted, err := strconv.ParseFloat(input, 64)
+	if err != nil {
+		return -1, err
+	}
+
+	if math.IsNaN(converted) || math.IsInf(converted, 0) {
+		return -1, errors.New("input was either NaN or Inf")
+	}
+
+	return int64(converted * factor), nil
+}
+
 func main() {
 
 	parser := argparse.NewParser("rotee",
@@ -565,9 +596,9 @@ func main() {
 	autoRotateFrequency := parser.Float("a", "auto-rotate-frequency",
 		&argparse.Options{Required: false, Help: "How long to wait between rotating the file." +
 			"Set to a positive number of seconds to activate", Default: -1.0})
-	maxLogFileSize := parser.Int("m", "max-logfile-size",
+	maxLogFileSize := parser.String("m", "max-logfile-size",
 		&argparse.Options{Required: false, Help: "Max logfile size before triggering logrotate." +
-			"Set to a positive number of bytes to activate", Default: -1})
+			"Set to a positive number of bytes to activate, allowed formats are: kb, mb, gb", Default: ""})
 	activityFilePath := parser.String("v", "verbose-output-file",
 		&argparse.Options{Required: false, Help: "Specify an output file for activity logging"})
 
@@ -616,8 +647,12 @@ func main() {
 		go automaticTimedRotation(&wg, *autoRotateFrequency, *outputFile, config)
 	}
 
-	if *maxLogFileSize > 0 {
-		go automaticFileSizeRotation(&wg, *maxLogFileSize, *outputFile, config)
+	if maxLogFileSize != nil && *maxLogFileSize != "" {
+		if maxLogFileSizeBytes, err := parse_memory_size_string(*maxLogFileSize); err == nil {
+			go automaticFileSizeRotation(&wg, int(maxLogFileSizeBytes), *outputFile, config)
+		} else {
+			log.Fatalf("Could not parse max log file size: %s", err)
+		}
 	}
 
 	if *triggerFile != "" {
