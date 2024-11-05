@@ -411,12 +411,17 @@ func rotateFile(outputFile string, config rotateConfig) error {
 			if stat, err := times.Stat(archive.getPath()); err == nil {
 
 				// btime might not exist for this OS / FS, if it does not we just continue
-				if stat.HasBirthTime() && int(math.Floor(today.Sub(stat.BirthTime()).Hours()/24)) >= config.maxAgeDays {
+				if stat.HasBirthTime() {
+					fileAge := int(math.Floor(today.Sub(stat.BirthTime()).Hours() / 24))
+					if fileAge >= config.maxAgeDays {
 
-					// Its okay if remove fails here
-					if err := os.Remove(archive.getPath()); err != nil {
-						logActivity("Failed to delete %s", archive.getPath())
-						continue
+						// Its okay if remove fails here
+						logActivity("Removing file %s because of age %d days is larger than %d days",
+							archive.getPath(), fileAge, config.maxAgeDays)
+						if err := os.Remove(archive.getPath()); err != nil {
+							logActivity("Failed to delete %s", archive.getPath())
+							continue
+						}
 					}
 				} else {
 					logActivity("Cant determine btime of file %s", archive.getPath())
@@ -516,7 +521,7 @@ func automaticFileSizeRotation(wg *sync.WaitGroup, maxFileSizeBytes int64, outpu
 			// Check if file is larger than trigger threshold, if yes do logrotate
 			if stat.Size() >= maxFileSizeBytes {
 
-				logActivity("Log file is now %d, trigger at %d", stat.Size(), maxFileSizeBytes)
+				logActivity("Log file is now %d bytes, trigger at %d bytes", stat.Size(), maxFileSizeBytes)
 				if err := rotateFile(outputFile, config); err != nil {
 					logActivity("Filed size based rotation failed!")
 					log.Fatal("Filed size based rotation failed!")
