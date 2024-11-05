@@ -501,7 +501,7 @@ func automaticTimedRotation(wg *sync.WaitGroup, autoRotateFrequency float64, out
 	}
 }
 
-func automaticFileSizeRotation(wg *sync.WaitGroup, maxFileSizeBytes int, outputFile string, config rotateConfig) {
+func automaticFileSizeRotation(wg *sync.WaitGroup, maxFileSizeBytes int64, outputFile string, config rotateConfig) {
 
 	logActivity("Running logrotate once file has size %d, checking every %f seconds",
 		maxFileSizeBytes, config.scanFrequencySeconds)
@@ -510,10 +510,16 @@ func automaticFileSizeRotation(wg *sync.WaitGroup, maxFileSizeBytes int, outputF
 		// Start work, tell wait group that we are busy and cant exit.
 		wg.Add(1)
 
-		if stat, err := os.Stat(outputFile); err == nil && stat.Size() >= int64(maxFileSizeBytes) {
+		if stat, err := os.Stat(outputFile); err == nil {
+
+			// Check if file is larger than trigger threshold, if yes do logrotate
+			if stat.Size() >= maxFileSizeBytes {
+
+				logActivity("Log file is now %d, trigger at %d", stat.Size(), maxFileSizeBytes)
 			if err := rotateFile(outputFile, config); err != nil {
 				logActivity("Filed size based rotation failed!")
 				log.Fatal("Filed size based rotation failed!")
+}
 			}
 		} else {
 			logActivity("Filed size based rotation could not stat file %s", outputFile)
@@ -649,7 +655,7 @@ func main() {
 
 	if maxLogFileSize != nil && *maxLogFileSize != "" {
 		if maxLogFileSizeBytes, err := parse_memory_size_string(*maxLogFileSize); err == nil {
-			go automaticFileSizeRotation(&wg, int(maxLogFileSizeBytes), *outputFile, config)
+			go automaticFileSizeRotation(&wg, maxLogFileSizeBytes, *outputFile, config)
 		} else {
 			log.Fatalf("Could not parse max log file size: %s", err)
 		}
