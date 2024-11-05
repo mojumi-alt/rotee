@@ -212,7 +212,7 @@ func TestRotate(t *testing.T) {
 		// Being slower than this might indicate a problem...
 		time.Sleep(time.Millisecond * time.Duration(subprocessTimeWait))
 
-		if result, err := os.ReadFile(filepath.Join(testOutputDirectory, testTriggerFileName)); err != nil && string(result) != "0" {
+		if result, err := os.ReadFile(filepath.Join(testOutputDirectory, testTriggerFileName)); err != nil || string(result) != "0" {
 			t.Fatal(err)
 		}
 
@@ -293,7 +293,7 @@ func TestRotateNoCompression(t *testing.T) {
 		// Being slower than this might indicate a problem...
 		time.Sleep(time.Millisecond * time.Duration(subprocessTimeWait))
 
-		if result, err := os.ReadFile(filepath.Join(testOutputDirectory, testTriggerFileName)); err != nil && string(result) != "0" {
+		if result, err := os.ReadFile(filepath.Join(testOutputDirectory, testTriggerFileName)); err != nil || string(result) != "0" {
 			t.Fatal(err)
 		}
 
@@ -376,7 +376,7 @@ func TestRotateMaxFiles(t *testing.T) {
 		// Being slower than this might indicate a problem...
 		time.Sleep(time.Millisecond * time.Duration(subprocessTimeWait))
 
-		if result, err := os.ReadFile(filepath.Join(testOutputDirectory, testTriggerFileName)); err != nil && string(result) != "0" {
+		if result, err := os.ReadFile(filepath.Join(testOutputDirectory, testTriggerFileName)); err != nil || string(result) != "0" {
 			t.Fatal(err)
 		}
 
@@ -463,7 +463,7 @@ func TestRotateMaxAge(t *testing.T) {
 		// Being slower than this might indicate a problem...
 		time.Sleep(time.Millisecond * time.Duration(subprocessTimeWait))
 
-		if result, err := os.ReadFile(filepath.Join(testOutputDirectory, testTriggerFileName)); err != nil && string(result) != "0" {
+		if result, err := os.ReadFile(filepath.Join(testOutputDirectory, testTriggerFileName)); err != nil || string(result) != "0" {
 			t.Fatal(err)
 		}
 
@@ -535,7 +535,8 @@ func TestRotateNothingLost(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if result, err := os.ReadFile(filepath.Join(testOutputDirectory, testTriggerFileName)); err != nil && string(result) != "0" {
+		time.Sleep(time.Millisecond * time.Duration(subprocessTimeWait))
+		if result, err := os.ReadFile(filepath.Join(testOutputDirectory, testTriggerFileName)); err != nil || string(result) != "0" {
 			t.Fatal(err)
 		}
 
@@ -633,8 +634,7 @@ func TestPreAndPostScript(t *testing.T) {
 	}
 
 	time.Sleep(time.Millisecond * time.Duration(subprocessTimeWait))
-
-	if result, err := os.ReadFile(filepath.Join(testOutputDirectory, testTriggerFileName)); err != nil && string(result) != "0" {
+	if result, err := os.ReadFile(filepath.Join(testOutputDirectory, testTriggerFileName)); err != nil || string(result) != "0" {
 		t.Fatal(err)
 	}
 
@@ -712,7 +712,7 @@ func TestRotateMixedCompression(t *testing.T) {
 		// Being slower than this might indicate a problem...
 		time.Sleep(time.Millisecond * time.Duration(subprocessTimeWait))
 
-		if result, err := os.ReadFile(filepath.Join(testOutputDirectory, testTriggerFileName)); err != nil && string(result) != "0" {
+		if result, err := os.ReadFile(filepath.Join(testOutputDirectory, testTriggerFileName)); err != nil || string(result) != "0" {
 			t.Fatal(err)
 		}
 
@@ -763,7 +763,7 @@ func TestRotateMixedCompression(t *testing.T) {
 		// Being slower than this might indicate a problem...
 		time.Sleep(time.Millisecond * time.Duration(subprocessTimeWait))
 
-		if result, err := os.ReadFile(filepath.Join(testOutputDirectory, testTriggerFileName)); err != nil && string(result) != "0" {
+		if result, err := os.ReadFile(filepath.Join(testOutputDirectory, testTriggerFileName)); err != nil || string(result) != "0" {
 			t.Fatal(err)
 		}
 
@@ -857,7 +857,7 @@ func TestRotateTempFileBroken(t *testing.T) {
 		// Being slower than this might indicate a problem...
 		time.Sleep(time.Millisecond * time.Duration(subprocessTimeWait))
 
-		if result, err := os.ReadFile(filepath.Join(testOutputDirectory, testTriggerFileName)); err != nil && string(result) != "0" {
+		if result, err := os.ReadFile(filepath.Join(testOutputDirectory, testTriggerFileName)); err != nil || string(result) != "0" {
 			t.Fatal(err)
 		}
 
