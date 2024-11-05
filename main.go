@@ -458,6 +458,7 @@ func watchForTrigger(wg *sync.WaitGroup, outputFile string, triggerFile string, 
 			logActivity("Starting rotate because of trigger file %s", triggerFile)
 			result := "0"
 			if err := rotateFile(outputFile, config); err != nil {
+				logActivity("Error during logrotate: %s", err)
 				result = "2"
 			}
 			logActivity("Writing status %s to %s", result, triggerFile)
@@ -516,10 +517,10 @@ func automaticFileSizeRotation(wg *sync.WaitGroup, maxFileSizeBytes int64, outpu
 			if stat.Size() >= maxFileSizeBytes {
 
 				logActivity("Log file is now %d, trigger at %d", stat.Size(), maxFileSizeBytes)
-			if err := rotateFile(outputFile, config); err != nil {
-				logActivity("Filed size based rotation failed!")
-				log.Fatal("Filed size based rotation failed!")
-}
+				if err := rotateFile(outputFile, config); err != nil {
+					logActivity("Filed size based rotation failed!")
+					log.Fatal("Filed size based rotation failed!")
+				}
 			}
 		} else {
 			logActivity("Filed size based rotation could not stat file %s", outputFile)
@@ -617,8 +618,7 @@ func main() {
 	activityFilePath := parser.String("v", "verbose-output-file",
 		&argparse.Options{Required: false, Help: "Specify an output file for activity logging"})
 
-	err := parser.Parse(os.Args)
-	if err != nil {
+	if err := parser.Parse(os.Args); err != nil {
 		fmt.Print(parser.Usage(err))
 		return
 	}
@@ -659,7 +659,7 @@ func main() {
 	}
 
 	// Start the desired rotate trigger processes
-	if *autoRotateFrequency > 0 {
+	if autoRotateFrequency != nil && *autoRotateFrequency > 0 {
 
 		// This function does not instantly do a rotate check
 		// Instead it starts on sleep so we need to inform the wait group.
@@ -675,7 +675,7 @@ func main() {
 		}
 	}
 
-	if *triggerFile != "" {
+	if triggerFile != nil && *triggerFile != "" {
 		go watchForTrigger(&wg, *outputFile, *triggerFile, config)
 	}
 
