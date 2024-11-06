@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/akamensky/argparse"
-	"github.com/djherbis/times"
 )
 
 type rotateConfig struct {
@@ -408,23 +407,17 @@ func rotateFile(outputFile string, config rotateConfig) error {
 		today := time.Now()
 
 		for _, archive := range archives {
-			if stat, err := times.Stat(archive.getPath()); err == nil {
+			if stat, err := os.Stat(archive.getPath()); err == nil {
+				fileAge := int(math.Floor(today.Sub(stat.ModTime()).Hours() / 24))
+				if fileAge >= config.maxAgeDays {
 
-				// btime might not exist for this OS / FS, if it does not we just continue
-				if stat.HasBirthTime() {
-					fileAge := int(math.Floor(today.Sub(stat.BirthTime()).Hours() / 24))
-					if fileAge >= config.maxAgeDays {
-
-						// Its okay if remove fails here
-						logActivity("Removing file %s because of age %d days is larger than %d days",
-							archive.getPath(), fileAge, config.maxAgeDays)
-						if err := os.Remove(archive.getPath()); err != nil {
-							logActivity("Failed to delete %s", archive.getPath())
-							continue
-						}
+					// Its okay if remove fails here
+					logActivity("Removing file %s because of age %d days is larger than %d days",
+						archive.getPath(), fileAge, config.maxAgeDays)
+					if err := os.Remove(archive.getPath()); err != nil {
+						logActivity("Failed to delete %s", archive.getPath())
+						continue
 					}
-				} else {
-					logActivity("Cant determine btime of file %s", archive.getPath())
 				}
 			} else {
 				logActivity("Failed to stat %s", archive.getPath())

@@ -102,7 +102,7 @@ This can be used together with the max file age parameter.
     rotee -o output.log -n 5 # Keep 5 most recent logfiles
 
 ## Limit max logfile age 
-This can be used together with max files parameter.
+This can be used together with max files parameter. The file modification time (mtime) is used to determine the age of the file.
 
     rotee -o output.log -d 30 # Delete all logfiles older than 30 days
 
